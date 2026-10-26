@@ -9,9 +9,12 @@
 //! handed back point into the decoder's own buffers and stay valid until the
 //! next call on the same decoder.
 
-use crate::agent::{Entry, Provider, Reader, Slot, State, Tokens};
+use std::ffi::c_void;
 
-pub const VSE_ABI_VERSION: u32 = 1;
+use crate::agent::{Entry, Provider, Reader, Slot, State, Tokens};
+use crate::lines::Splitter;
+
+pub const VSE_ABI_VERSION: u32 = 2;
 
 pub mod types {
     use std::ptr;
@@ -393,6 +396,82 @@ fn entry_out(entry: &Entry) -> VSEAgentEntry {
         }
     }
     out
+}
+
+/// Reads appended log bytes into one reused buffer; see `lines`.
+pub struct VSELineSplitter {
+    splitter: Splitter,
+}
+
+/// One complete line, lent for the duration of the call.
+pub type VSELineCallback = Option<unsafe extern "C" fn(context: *mut c_void, line: *const u8, len: usize)>;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VSELineRead {
+    /// Bytes read from the file: 0 at its end, -1 when the read failed.
+    pub read: i64,
+    /// The bytes to carry over to the next read; valid until the next call.
+    pub rest: VSEStr,
+    pub discarding: u8,
+}
+
+#[no_mangle]
+pub extern "C" fn vse_line_splitter_new() -> *mut VSELineSplitter {
+    Box::into_raw(Box::new(VSELineSplitter { splitter: Splitter::default() }))
+}
+
+/// # Safety
+/// `splitter` must come from `vse_line_splitter_new` and not be used again.
+#[no_mangle]
+pub unsafe extern "C" fn vse_line_splitter_free(splitter: *mut VSELineSplitter) {
+    if !splitter.is_null() {
+        drop(Box::from_raw(splitter));
+    }
+}
+
+/// Reads up to `wanted` bytes at `offset` from `fd` behind `pending` and
+/// calls `line` with each complete line no longer than `maximum`, in order.
+///
+/// # Safety
+/// `splitter` must be valid, `pending` readable, and `fd` an open descriptor
+/// the call does not close.
+// The C interface passes the read as plain arguments.
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub unsafe extern "C" fn vse_line_splitter_read(
+    splitter: *mut VSELineSplitter,
+    fd: i32,
+    offset: u64,
+    wanted: usize,
+    pending: VSEStr,
+    discarding: u8,
+    maximum: usize,
+    line: VSELineCallback,
+    context: *mut c_void,
+) -> VSELineRead {
+    let failed = VSELineRead { read: -1, rest: VSEStr::EMPTY, discarding };
+    let (Some(splitter), Some(line)) = (splitter.as_mut(), line) else { return failed };
+    let deliver = |bytes: &[u8]| line(context, bytes.as_ptr(), bytes.len());
+    match splitter.splitter.read(fd, offset, wanted, pending.bytes(), discarding != 0, maximum, deliver) {
+        Ok(split) => VSELineRead {
+            read: split.read as i64,
+            rest: VSEStr::of(splitter.splitter.rest(split.rest)),
+            discarding: split.discarding as u8,
+        },
+        Err(_) => failed,
+    }
+}
+
+/// Gives back a buffer a long line grew; call once the rest was copied out.
+///
+/// # Safety
+/// `splitter` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn vse_line_splitter_trim(splitter: *mut VSELineSplitter) {
+    if let Some(splitter) = splitter.as_mut() {
+        splitter.splitter.trim();
+    }
 }
 
 #[cfg(test)]

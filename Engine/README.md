@@ -41,6 +41,7 @@ synthetic 512 MB Claude Code log.
 | Claude Code log lines | `ClaudeReader.parse` | Lines that carry tool output or pasted files reach tens of MB; `JSONSerialization` turned each into a full `NSDictionary`/`NSString` tree. |
 | Codex log lines | `CodexReader.parse` | Same, plus compacted history and `token_count` events on every response. |
 | ISO 8601 timestamps | `AgentTimestamp.fast` | Ported bit for bit; other shapes call back into Swift's formatter. |
+| Log line splitting | `AgentLogReader.split` | Each 4 MB chunk was copied onto the carried-over bytes, then every line (up to 32 MB) into its own `Data`. Now a chunk is `pread` into one reused buffer and each line is lent to Swift in place. |
 
 The Rust reader validates a line as strictly as `JSONSerialization` (UTF-8,
 grammar, escapes, surrogates, nesting), indexes the top-level fields in place
@@ -76,18 +77,16 @@ become the default and the Swift reference can be removed.
 
 ## Candidates, in order
 
-1. **OpenCode and Copilot readers** (`Harness/OpenCodeReader.swift`,
-   `CopilotReader.swift`): the same `JSONSerialization` pattern; finishes the
-   agent log engine.
-2. **Log file reading** (`AgentLogReader.readAppended`/`split`): read with
-   `pread` into one reused buffer and decode lines in place, removing the
-   per-line `Data` copy.
-3. **Usage summary** (`AgentUsageSummary.snapshot`): aggregation over every
+1. **Usage summary** (`AgentUsageSummary.snapshot`): aggregation over every
    record on each refresh; a columnar store in Rust would shrink the records.
-4. **Command bar and clipboard search scoring** (`CommandBarSupport.score`,
+2. **Command bar and clipboard search scoring** (`CommandBarSupport.score`,
    `ClipboardHistorySupport`): runs on every keystroke over all candidates.
-5. **Junk cleaner scanning** (`JunkCleaner`): directory walks and size sums,
+3. **Junk cleaner scanning** (`JunkCleaner`): directory walks and size sums,
    parallelisable without `FileManager` enumerators.
+
+The Copilot reader already scans lines lazily with `AgentLogObject`, and
+OpenCode rows are small records rebuilt from its SQLite database, so porting
+either would add boundary code without saving much.
 
 Window management, audio taps, capture, accessibility and the notch stay in
 Swift: they are thin layers over Apple frameworks, where a port adds a

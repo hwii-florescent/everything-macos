@@ -5,7 +5,12 @@
 // as Swift does, so a header that drifts from Engine/src/ffi.rs fails here.
 // Run by Engine/check-abi.sh.
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <assert.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +21,19 @@ static double no_fallback(const uint8_t *text, size_t len) {
     (void)text;
     (void)len;
     return NAN;
+}
+
+typedef struct {
+    int count;
+    char lines[4][16];
+} Seen;
+
+static void collect(void *context, const uint8_t *line, size_t len) {
+    Seen *seen = context;
+    assert(seen->count < 4 && len < 16);
+    memcpy(seen->lines[seen->count], line, len);
+    seen->lines[seen->count][len] = 0;
+    seen->count++;
 }
 
 static int same(VSEStr text, const char *wanted) {
@@ -63,6 +81,28 @@ int main(void) {
 
     assert(vse_agent_decode(decoder, 7, (const uint8_t *)done, strlen(done), 0, &state, &out) == UINT32_MAX);
     vse_agent_decoder_free(decoder);
+    char path[] = "/tmp/vse-abi-XXXXXX";
+    int fd = mkstemp(path);
+    assert(fd >= 0);
+    const char *text = "one\ntwo\nthree";
+    assert(write(fd, text, strlen(text)) == (ssize_t)strlen(text));
+    VSELineSplitter *splitter = vse_line_splitter_new();
+    Seen seen = {0};
+    VSEStr none = {NULL, 0};
+    VSELineRead first = vse_line_splitter_read(splitter, fd, 0, 6, none, 0, 1024, collect, &seen);
+    assert(first.read == 6 && seen.count == 1 && strcmp(seen.lines[0], "one") == 0 && same(first.rest, "tw"));
+    char carried[8];
+    memcpy(carried, first.rest.ptr, first.rest.len);
+    VSEStr pending = {(const uint8_t *)carried, first.rest.len};
+    VSELineRead second = vse_line_splitter_read(splitter, fd, 6, 64, pending, 0, 1024, collect, &seen);
+    assert(second.read == 7 && seen.count == 2 && strcmp(seen.lines[1], "two") == 0 && same(second.rest, "three"));
+    assert(vse_line_splitter_read(splitter, fd, 13, 64, none, 0, 1024, collect, &seen).read == 0);
+    assert(vse_line_splitter_read(splitter, -1, 0, 64, none, 0, 1024, collect, &seen).read == -1);
+    vse_line_splitter_trim(splitter);
+    vse_line_splitter_free(splitter);
+    close(fd);
+    unlink(path);
+
     printf("ABI OK: VSEAgentState %zu, VSEAgentEntry %zu, VSEAgentOutput %zu bytes\n", sizeof(VSEAgentState),
            sizeof(VSEAgentEntry), sizeof(VSEAgentOutput));
     return 0;

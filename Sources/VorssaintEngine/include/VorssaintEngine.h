@@ -11,7 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define VSE_ABI_VERSION 1U
+#define VSE_ABI_VERSION 2U
 
 /// UTF-8 bytes owned by the other side; ptr may be NULL when len is 0.
 typedef struct {
@@ -129,5 +129,32 @@ void vse_agent_decoder_free(VSEAgentDecoder *decoder);
 /// number of entries written to out, or UINT32_MAX for an unknown provider.
 uint32_t vse_agent_decode(VSEAgentDecoder *decoder, uint32_t provider, const uint8_t *line, size_t len,
                           double now, VSEAgentState *state, VSEAgentOutput *out);
+
+/// Reads appended log bytes into one reused buffer and lends out each
+/// complete line; mirrors AgentLogReader.split.
+typedef struct VSELineSplitter VSELineSplitter;
+
+/// One complete line, valid only for the duration of the call.
+typedef void (*VSELineCallback)(void *context, const uint8_t *line, size_t len);
+
+typedef struct {
+    /// Bytes read from the file: 0 at its end, -1 when the read failed.
+    int64_t read;
+    /// The bytes to carry over to the next read; valid until the next call.
+    VSEStr rest;
+    uint8_t discarding;
+} VSELineRead;
+
+VSELineSplitter *vse_line_splitter_new(void);
+void vse_line_splitter_free(VSELineSplitter *splitter);
+
+/// Reads up to wanted bytes at offset from fd (left open) behind pending and
+/// calls line with each complete line no longer than maximum, in order.
+VSELineRead vse_line_splitter_read(VSELineSplitter *splitter, int32_t fd, uint64_t offset, size_t wanted,
+                                   VSEStr pending, uint8_t discarding, size_t maximum, VSELineCallback line,
+                                   void *context);
+
+/// Gives back a buffer a long line grew; call once the rest was copied out.
+void vse_line_splitter_trim(VSELineSplitter *splitter);
 
 #endif

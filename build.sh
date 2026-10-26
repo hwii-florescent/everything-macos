@@ -321,6 +321,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/AgentUsage/Harness/CopilotReader.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageSummary.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageStore.swift
+        Sources/Vorssaint/Services/AgentUsage/RustLineSplitter.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageArchive.swift
         Sources/Vorssaint/Services/AgentUsage/AgentClaudeAppUsage.swift
         Sources/Vorssaint/Services/AgentUsage/AgentCLIConversation.swift

@@ -8,5 +8,6 @@
 pub mod agent;
 pub mod ffi;
 pub mod json;
+pub mod lines;
 pub mod scan;
 pub mod timestamp;
