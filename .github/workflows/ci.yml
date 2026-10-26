@@ -94,3 +94,9 @@ jobs:
 
       - name: Unit tests against the engine
         run: ./build.sh --test --rust-engine
+
+      - name: Agent log benchmark (Rust engine)
+        run: ./build.sh --test-suite=agent-log-benchmark --rust-engine
+
+      - name: Agent log benchmark (Swift)
+        run: ./build.sh --test-suite=agent-log-benchmark
