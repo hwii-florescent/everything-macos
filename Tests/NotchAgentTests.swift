@@ -570,9 +570,6 @@ enum NotchAgentTests {
         }
         suite.expectClose(fastStore.records.first?.cost ?? -1, 2 * (usage?.cost ?? 0),
                           "the fast tier Codex records doubles the response's price")
-        suite.expect(AgentLogParser.fastTier("priority") && AgentLogParser.fastTier("Fast") && !AgentLogParser.fastTier("default")
-                        && !AgentLogParser.fastTier("flex"),
-                     "fast mode is recognized by both of its names")
 
         // Older logs carry running totals only.
         var legacy = AgentLogState()
@@ -615,10 +612,6 @@ enum NotchAgentTests {
                                                state: &aborted, now: now)
                         == [.turnEnded(AgentTimestamp.parse("2026-09-22T15:00:00.000Z"), completed: false, duration: 10.961)],
                      "an aborted turn ends without counting as finished")
-        let event = line(#"{"timestamp":"2026-09-22T15:00:00.000Z","ordinal":3,"type":"event_msg","payload":{"type":"token_count","info":null}}"#)
-        let kind = AgentLogParser.firstType(event)
-        suite.expect(kind?.name == "event_msg" && AgentLogParser.firstType(event, from: kind?.end ?? 0)?.name == "token_count",
-                     "a Codex line's own type is found first, then its event's")
         // Compacted history and tool output quote whole records, keys and all.
         let quoted = #"{"type":"event_msg","payload":{"type":"task_complete","duration_ms":1}}"#
         let history = String(repeating: quoted, count: 20_000)

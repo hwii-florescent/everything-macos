@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-#if VORSSAINT_RUST_ENGINE
 import Foundation
 import VorssaintEngine
 
 /// Splits appended log bytes in the Rust engine (`Engine/src/lines.rs`). Each
 /// chunk is read into one reused buffer behind what the cursor carried over,
-/// and every line is lent out in place, where `AgentLogReader.split` copied
-/// the chunk onto the carried bytes and then each line into its own `Data`.
+/// and every line is lent out in place instead of copied into its own `Data`.
 final class RustLineSplitter {
     static let shared = RustLineSplitter()
 
@@ -63,4 +61,3 @@ final class RustLineSplitter {
         }
     }
 }
-#endif

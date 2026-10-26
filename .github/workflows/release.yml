@@ -66,6 +66,10 @@ jobs:
             exit 1
           fi
 
+      - name: Rust toolchain
+        # The runner image ships one; a release never installs its own.
+        run: cargo --version
+
       - name: Unit tests
         run: ./build.sh --test
 
@@ -118,6 +122,10 @@ jobs:
           SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
           SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
         run: ./Tools/ci-setup-signing.sh
+
+      - name: Rust toolchain
+        # The runner image ships one; a release never installs its own.
+        run: cargo --version
 
       - name: Build
         run: ./build.sh

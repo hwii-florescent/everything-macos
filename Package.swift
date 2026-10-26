@@ -16,7 +16,9 @@ let package = Package(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
-        // The Rust engine's C interface; build.sh --rust-engine builds and links it.
+        // The Rust engine's C interface. build.sh builds Engine/ and passes its
+        // library folder to the linker; plain `swift build` needs it built first
+        // and `-Xlinker -L -Xlinker Engine/target/aarch64-apple-darwin/release`.
         .systemLibrary(
             name: "VorssaintEngine",
             path: "Sources/VorssaintEngine"

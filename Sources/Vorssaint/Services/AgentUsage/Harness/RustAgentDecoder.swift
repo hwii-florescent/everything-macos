@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-#if VORSSAINT_RUST_ENGINE
 import Foundation
 import VorssaintEngine
 
@@ -192,4 +191,3 @@ final class RustAgentDecoder {
         return commands
     }
 }
-#endif

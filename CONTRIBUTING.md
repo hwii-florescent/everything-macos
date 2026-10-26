@@ -53,9 +53,9 @@ over a new subsystem. Keep each PR focused on one independently useful change.
   string catalogs. A new language also needs its locale registration, localized
   permission prompts where applicable, and coverage tests.
 - New source files retain the project's SPDX license and copyright headers.
-- Byte-heavy engine work (log decoding, parsing) is moving to the Rust crate in
-  `Engine/`, behind `./build.sh --rust-engine`. See `Engine/README.md` for the
-  boundary, the parity tests a port needs and the order of the next ports.
+- Byte-heavy engine work (log decoding, line splitting) lives in the Rust crate
+  in `Engine/`, which `./build.sh` builds and links; it needs a Rust toolchain.
+  See `Engine/README.md` for the C boundary and how to change it.
 
 Sensor changes should include a dump from `./build/Vorssaint --sensors` and the
 Mac model. Selection logic lives in `TemperatureSensorSelector` and `SystemMonitor`.

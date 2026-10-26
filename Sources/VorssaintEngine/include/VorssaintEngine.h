@@ -131,7 +131,7 @@ uint32_t vse_agent_decode(VSEAgentDecoder *decoder, uint32_t provider, const uin
                           double now, VSEAgentState *state, VSEAgentOutput *out);
 
 /// Reads appended log bytes into one reused buffer and lends out each
-/// complete line; mirrors AgentLogReader.split.
+/// complete line, for AgentLogReader.readAppended.
 typedef struct VSELineSplitter VSELineSplitter;
 
 /// One complete line, valid only for the duration of the call.

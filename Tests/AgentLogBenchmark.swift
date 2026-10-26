@@ -5,9 +5,8 @@ import Foundation
 
 /// Reads a synthetic Claude Code log the shape of a long session through the
 /// production reader, parser and store, and reports time and peak memory.
-/// Opt-in (`./build.sh --test-suite=agent-log-benchmark`, with or without
-/// `--rust-engine`) and run in a process of its own, since peak memory is a
-/// process-wide high-water mark. `VORSSAINT_BENCH_MB` sets the log size.
+/// Opt-in (`./build.sh --test-suite=agent-log-benchmark`) and run in a
+/// process of its own, since peak memory is a process-wide high-water mark. `VORSSAINT_BENCH_MB` sets the log size.
 enum AgentLogBenchmark {
     static func run(_ suite: TestSuite) {
         let folder = FileManager.default.temporaryDirectory
@@ -55,17 +54,12 @@ enum AgentLogBenchmark {
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - started
         getrusage(RUSAGE_SELF, &usage)
-        #if VORSSAINT_RUST_ENGINE
-        let engine = "rust"
-        #else
-        let engine = "swift"
-        #endif
         // macOS reports ru_maxrss in bytes.
         let mb = { (bytes: Int) in Double(bytes) / Double(1 << 20) }
         let tokens = store.records.reduce(0) { $0 + $1.tokens.total }
-        print(String(format: "AGENT LOG BENCHMARK [%@]: %ld MB, %ld lines, %ld records, %ld tokens in %.2fs (%.0f MB/s); "
+        print(String(format: "AGENT LOG BENCHMARK: %ld MB, %ld lines, %ld records, %ld tokens in %.2fs (%.0f MB/s); "
                      + "peak RSS %.1f MB, +%.1f MB while reading",
-                     engine, written >> 20, lines, store.records.count, tokens, elapsed,
+                     written >> 20, lines, store.records.count, tokens, elapsed,
                      mb(written) / max(elapsed, 0.001), mb(usage.ru_maxrss), mb(usage.ru_maxrss - peakBefore)))
         suite.expect(lines == cycles * 4 && store.records.count == cycles * 2,
                      "every line is read and every reply recorded (\(lines) lines, \(store.records.count) records)")

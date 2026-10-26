@@ -102,30 +102,6 @@ enum AgentLogParser {
         }
     }
 
-    /// The first `"type":"…"` value at or after `start`, and where it ends.
-    /// A Codex rollout line writes its own type before its payload, and an
-    /// event's payload opens with the event's type, so the search stops
-    /// within the first hundred bytes instead of crossing tool output or
-    /// compacted history that can run to tens of megabytes per line.
-    static func firstType(_ line: Data, from start: Int = 0) -> (name: String, end: Int)? {
-        let key: StaticString = #""type":""#
-        return line.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress, start < bytes.count,
-                  let found = memmem(base + start, bytes.count - start, key.utf8Start, key.utf8CodeUnitCount)
-            else { return nil }
-            let value = base.distance(to: found) + key.utf8CodeUnitCount
-            // Type names are short identifiers.
-            let limit = min(bytes.count, value + 64)
-            guard value < limit, let quote = memchr(base + value, 0x22, limit - value) else { return nil }
-            let end = base.distance(to: UnsafeRawPointer(quote))
-            return (String(decoding: UnsafeRawBufferPointer(rebasing: bytes[value..<end]), as: UTF8.self), end + 1)
-        }
-    }
-
-    static let codexEvents: Set<String> = [
-        "token_count", "task_started", "task_complete", "turn_aborted", "thread_settings_applied",
-    ]
-
     static func object(_ line: Data) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
     }
@@ -140,20 +116,6 @@ enum AgentLogParser {
 
     static func parseCodex(_ line: Data, state: inout AgentLogState, now: Date) -> [AgentLogEntry] {
         CodexReader().parse(line, state: &state, now: now)
-    }
-
-    /// Input counts include what came from the cache.
-    static func codexTokens(_ usage: [String: Any]) -> AgentTokens {
-        let input = int(usage["input_tokens"])
-        let cached = min(input, int(usage["cached_input_tokens"]))
-        let written = min(input - cached, int(usage["cache_write_input_tokens"]))
-        return AgentTokens(input: input - cached - written, cacheWrite: written, cacheRead: cached,
-                           output: int(usage["output_tokens"]), reasoning: int(usage["reasoning_output_tokens"]))
-    }
-
-    /// Fast mode, named priority before July 2026.
-    static func fastTier(_ tier: String) -> Bool {
-        ["fast", "priority"].contains(tier.lowercased())
     }
 
     // MARK: OpenCode

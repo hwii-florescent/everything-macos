@@ -3,7 +3,8 @@
 
 //! Claude Code session logs. A prompt opens a turn, a reply keeps it going and
 //! records its usage, and an interruption, a local command's output or a
-//! turn-ending tool result closes the turn again. Mirrors `ClaudeReader`.
+//! turn-ending tool result closes the turn again. Swift's `ClaudeReader` calls
+//! into it.
 
 use super::{int, project_name, swift_double, Billable, Entry, Reader, State, Tokens};
 use crate::json::{self, Object};

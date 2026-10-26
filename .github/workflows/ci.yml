@@ -29,6 +29,14 @@ jobs:
           swiftc --version | grep -F "Apple Swift version 6.0.3"
           test "$(xcrun --sdk macosx --show-sdk-version)" = "15.2"
 
+      - name: Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --component clippy,rustfmt
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Build
         run: ./build.sh
 
@@ -47,6 +55,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --component clippy,rustfmt
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Build
         run: ./build.sh
 
@@ -59,7 +75,7 @@ jobs:
       - name: Unit tests
         run: ./build.sh --test
 
-  rust-engine:
+  engine:
     name: Rust engine
     runs-on: macos-26
     timeout-minutes: 30
@@ -86,17 +102,5 @@ jobs:
       - name: C interface
         run: ./Engine/check-abi.sh
 
-      - name: Build with the engine
-        run: ./build.sh --rust-engine
-
-      - name: Selftest
-        run: ./build/Vorssaint --selftest
-
-      - name: Unit tests against the engine
-        run: ./build.sh --test --rust-engine
-
-      - name: Agent log benchmark (Rust engine)
-        run: ./build.sh --test-suite=agent-log-benchmark --rust-engine
-
-      - name: Agent log benchmark (Swift)
+      - name: Agent log benchmark
         run: ./build.sh --test-suite=agent-log-benchmark
