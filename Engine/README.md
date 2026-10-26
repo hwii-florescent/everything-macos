@@ -56,10 +56,18 @@ UI. The Swift readers stay as the reference, renamed `parseInSwift`, and
 `Tests/RustEngineParityTests.swift` checks the engine against them on every line
 of a corpus and on thousands of truncated and damaged copies.
 
-Measured on Linux x86_64 with the synthetic benchmark (3 MB tool results): about
-350 MB/s, with peak RSS around 11 MB, most of it the benchmark's own lines. The
-Swift path has not been measured on the same input yet; compare both on a Mac
-with Instruments (Allocations) while the island reads a large `~/.claude` folder.
+Measured on GitHub's macOS 26 runner (Apple Silicon) by the `agent-log-benchmark`
+suite, which reads a synthetic 258 MB Claude Code log with 3 MB tool results
+through the production reader, parser and store. Both paths produced the same
+174 records and 10,540,746 tokens:
+
+| Path | Time | Throughput | Peak RSS growth while reading |
+|---|---|---|---|
+| Swift (`JSONSerialization`, `Data` copies) | 2.55 s | 102 MB/s | +62.8 MB |
+| Rust engine (`--rust-engine`) | 1.13 s | 229 MB/s | +15.4 MB |
+
+Run it yourself with `./build.sh --test-suite=agent-log-benchmark`, with and
+without `--rust-engine`; `VORSSAINT_BENCH_MB` sets the log size.
 
 ## Adding a subsystem
 
