@@ -24,3 +24,6 @@ CLAUDE.md
 *.xcodeproj
 xcuserdata/
 .swiftpm/
+
+# Rust engine
+Engine/target/

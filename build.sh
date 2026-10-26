@@ -28,9 +28,12 @@ trap 'exit 1' INT TERM HUP
 
 # Flags: --dev builds the local-only "Vorssaint (Developer)" variant (its own
 # bundle id, so it coexists with the official app); --install puts it in /Applications.
+# --rust-engine (or VORSSAINT_RUST_ENGINE=1) links the Rust engine in Engine/ and
+# routes the subsystems it has taken over through it; see Engine/README.md.
 DEV=0
 INSTALL=0
 TEST=0
+RUST_ENGINE="${VORSSAINT_RUST_ENGINE:-0}"
 TEST_ARGS=()
 for arg in "$@"; do
     case "$arg" in
@@ -39,6 +42,7 @@ for arg in "$@"; do
         --test)    TEST=1 ;;
         --test-suite=*) TEST=1; TEST_ARGS+=("--suite=${arg#*=}") ;;
         --list-tests) TEST=1; TEST_ARGS+=(--list) ;;
+        --rust-engine) RUST_ENGINE=1 ;;
     esac
 done
 
@@ -212,6 +216,23 @@ if [[ "$SDK" == "$PINNED_SDK" ]]; then
     SDK_COMPAT_FLAGS=(-Xfrontend -interface-compiler-version -Xfrontend 6.3.2)
 fi
 
+# The Rust engine is a static library: Swift imports its C header through
+# Sources/VorssaintEngine and the module map links it, so nothing ships beside
+# the executable. Release builds use LTO and abort on panic (Engine/Cargo.toml).
+ENGINE_FLAGS=()
+if (( RUST_ENGINE )); then
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo "✗ --rust-engine needs a Rust toolchain (https://rustup.rs)" >&2
+        exit 1
+    fi
+    ENGINE_TARGET="aarch64-apple-darwin"
+    echo "▸ Building Rust engine ($ENGINE_TARGET)…"
+    MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --quiet --locked \
+        --manifest-path Engine/Cargo.toml --target "$ENGINE_TARGET"
+    ENGINE_FLAGS=(-D VORSSAINT_RUST_ENGINE -I Sources/VorssaintEngine
+                  -L "Engine/target/$ENGINE_TARGET/release")
+fi
+
 # The defaults migrations under test need a real UserDefaults suite, and every
 # suite leaves an empty plist in ~/Library/Preferences. The tests already clear
 # the domains, but cfprefsd writes the emptied file back out around the time the
@@ -295,10 +316,12 @@ if (( TEST )); then
         Sources/Vorssaint/Services/AgentUsage/Harness/AgentHarnessReader.swift
         Sources/Vorssaint/Services/AgentUsage/Harness/ClaudeReader.swift
         Sources/Vorssaint/Services/AgentUsage/Harness/CodexReader.swift
+        Sources/Vorssaint/Services/AgentUsage/Harness/RustAgentDecoder.swift
         Sources/Vorssaint/Services/AgentUsage/Harness/OpenCodeReader.swift
         Sources/Vorssaint/Services/AgentUsage/Harness/CopilotReader.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageSummary.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageStore.swift
+        Sources/Vorssaint/Services/AgentUsage/RustLineSplitter.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageArchive.swift
         Sources/Vorssaint/Services/AgentUsage/AgentClaudeAppUsage.swift
         Sources/Vorssaint/Services/AgentUsage/AgentCLIConversation.swift
@@ -583,7 +606,7 @@ if (( TEST )); then
     swiftc -Onone -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -module-name VorssaintTests -output-file-map "$TEST_OUTPUT_FILE_MAP" \
         -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
-        "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${TEST_SOURCES[@]}" -o build/metrics-tests
+        "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${ENGINE_FLAGS[@]}" "${TEST_SOURCES[@]}" -o build/metrics-tests
     test_status=0
     ./build/metrics-tests "${TEST_ARGS[@]}" || test_status=$?
     if (( ${#TEST_ARGS} == 0 )); then
@@ -615,7 +638,7 @@ write_swift_output_file_map "$APP_OUTPUT_FILE_MAP" "$APP_OBJECT_DIR" "${APP_SOUR
 swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
     -output-file-map "$APP_OUTPUT_FILE_MAP" \
     -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
-    "${BUILD_VARIANT_FLAGS[@]}" \
+    "${BUILD_VARIANT_FLAGS[@]}" "${ENGINE_FLAGS[@]}" \
     "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
 
 echo "▸ Compiling protected fan helper…"

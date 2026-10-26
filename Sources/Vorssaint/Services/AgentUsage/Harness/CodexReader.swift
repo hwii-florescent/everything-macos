@@ -10,6 +10,15 @@ struct CodexReader: AgentHarnessReader {
     var provider: AgentProvider { .codex }
 
     func parse(_ line: Data, state: inout AgentLogState, now: Date) -> [AgentLogEntry] {
+        #if VORSSAINT_RUST_ENGINE
+        return RustAgentDecoder.shared.parse(line, provider: .codex, state: &state, now: now)
+        #else
+        return parseInSwift(line, state: &state, now: now)
+        #endif
+    }
+
+    /// The reference reader, which the engine's must match line for line.
+    func parseInSwift(_ line: Data, state: inout AgentLogState, now: Date) -> [AgentLogEntry] {
         guard let kind = AgentLogParser.firstType(line) else { return [] }
         switch kind.name {
         case "token_usage_record", "turn_context", "session_meta": break

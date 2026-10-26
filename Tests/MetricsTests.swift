@@ -125,7 +125,10 @@ struct MetricsTests {
                 NotchPresentationProbeArgumentTests.run(suite)
             }),
             ("switcher-model", { SwitcherModelFeatureTests.run(suite) }),
-            ("agents", { NotchAgentTests.run(suite) }),
+            ("agents", {
+                NotchAgentTests.run(suite)
+                RustEngineParityTests.run(suite)
+            }),
             ("features", {
                 FeatureCatalogTests.run(suite)
                 MenuPanelSectionGateContract.run(suite)
@@ -223,6 +226,7 @@ struct MetricsTests {
             }),
             ("wallpaper", { WallpaperContract.run(suite) }),
             ("emoji", { CommandBarEmojiContract.run(suite) }),
+            ("agent-log-benchmark", { AgentLogBenchmark.run(suite) }),
         ]
         var selected = Set<String>()
         var listOnly = false
@@ -244,7 +248,9 @@ struct MetricsTests {
         }
         // notch-music is a focused subset already executed by notch. Running it
         // twice in an unfiltered pass also repeats stateful adapter fixtures.
-        for (name, body) in groups where (selected.isEmpty && name != "notch-music") || selected.contains(name) {
+        // agent-log-benchmark measures peak memory, so it runs only on its own.
+        let optIn: Set<String> = ["notch-music", "agent-log-benchmark"]
+        for (name, body) in groups where (selected.isEmpty && !optIn.contains(name)) || selected.contains(name) {
             suite.run(name, body)
         }
         suite.finish()

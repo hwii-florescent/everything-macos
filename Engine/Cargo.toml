@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Vorssaint
+
+[package]
+name = "vorssaint-engine"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Native engine behind the Vorssaint SwiftUI app, linked as a static library."
+publish = false
+
+# No dependencies, like the Swift side: everything builds offline from this tree.
+[dependencies]
+
+[lib]
+name = "vorssaint_engine"
+crate-type = ["staticlib", "rlib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+# The app never unwinds across the C boundary; aborting keeps the library small.
+panic = "abort"
+debug = false
+strip = "debuginfo"

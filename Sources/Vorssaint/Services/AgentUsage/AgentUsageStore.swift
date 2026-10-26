@@ -791,6 +791,21 @@ enum AgentLogReader {
             cursor.startOver(identity: identity)
         }
         defer { cursor.fingerprintRead() }
+        #if VORSSAINT_RUST_ENGINE
+        guard size > cursor.offset else { return }
+        let descriptor = open(cursor.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        while cursor.offset < size, shouldContinue() {
+            let wanted = Int(min(UInt64(chunkSize), size - cursor.offset))
+            let read: Bool = autoreleasepool {
+                RustLineSplitter.shared.read(descriptor, cursor: cursor, wanted: wanted, maximum: maximumLine) {
+                    if including?($0, 0..<$0.count) != false { line($0) }
+                }
+            }
+            guard read else { break }
+        }
+        #else
         guard size > cursor.offset, let handle = FileHandle(forReadingAtPath: cursor.path) else { return }
         defer { try? handle.close() }
         do { try handle.seek(toOffset: cursor.offset) } catch { return }
@@ -806,6 +821,7 @@ enum AgentLogReader {
             }
             guard read else { break }
         }
+        #endif
     }
 
     /// Skip unrelated payloads before copying a line. Only top-level event

@@ -58,3 +58,45 @@ jobs:
 
       - name: Unit tests
         run: ./build.sh --test
+
+  rust-engine:
+    name: Rust engine
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --component clippy,rustfmt
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Engine tests
+        run: |
+          cargo --version
+          cargo fmt --manifest-path Engine/Cargo.toml --check
+          cargo clippy --manifest-path Engine/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path Engine/Cargo.toml --locked
+
+      - name: C interface
+        run: ./Engine/check-abi.sh
+
+      - name: Build with the engine
+        run: ./build.sh --rust-engine
+
+      - name: Selftest
+        run: ./build/Vorssaint --selftest
+
+      - name: Unit tests against the engine
+        run: ./build.sh --test --rust-engine
+
+      - name: Agent log benchmark (Rust engine)
+        run: ./build.sh --test-suite=agent-log-benchmark --rust-engine
+
+      - name: Agent log benchmark (Swift)
+        run: ./build.sh --test-suite=agent-log-benchmark

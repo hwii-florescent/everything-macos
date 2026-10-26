@@ -16,9 +16,14 @@ let package = Package(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
+        // The Rust engine's C interface; build.sh --rust-engine builds and links it.
+        .systemLibrary(
+            name: "VorssaintEngine",
+            path: "Sources/VorssaintEngine"
+        ),
         .executableTarget(
             name: "Vorssaint",
-            dependencies: ["VMStatisticsCompat", "HIDEventSystem"],
+            dependencies: ["VMStatisticsCompat", "HIDEventSystem", "VorssaintEngine"],
             path: "Sources/Vorssaint"
         )
     ]
