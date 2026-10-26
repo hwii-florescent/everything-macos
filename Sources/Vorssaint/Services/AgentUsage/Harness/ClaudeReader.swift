@@ -10,6 +10,15 @@ struct ClaudeReader: AgentHarnessReader {
     var provider: AgentProvider { .claude }
 
     func parse(_ line: Data, state: inout AgentLogState, now: Date) -> [AgentLogEntry] {
+        #if VORSSAINT_RUST_ENGINE
+        return RustAgentDecoder.shared.parse(line, provider: .claude, state: &state, now: now)
+        #else
+        return parseInSwift(line, state: &state, now: now)
+        #endif
+    }
+
+    /// The reference reader, which the engine's must match line for line.
+    func parseInSwift(_ line: Data, state: inout AgentLogState, now: Date) -> [AgentLogEntry] {
         if AgentLogParser.contains(line, #""type":"assistant""#) { return claudeAssistant(line, state: &state, now: now) }
         guard AgentLogParser.contains(line, #""type":"user""#) else { return [] }
         // A local command prints its output without asking the model anything,

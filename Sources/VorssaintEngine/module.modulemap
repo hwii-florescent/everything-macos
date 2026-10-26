@@ -1,0 +1,5 @@
+module VorssaintEngine [system] {
+    header "include/VorssaintEngine.h"
+    link "vorssaint_engine"
+    export *
+}
