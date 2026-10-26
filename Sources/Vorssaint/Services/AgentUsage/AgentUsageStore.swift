@@ -791,7 +791,6 @@ enum AgentLogReader {
             cursor.startOver(identity: identity)
         }
         defer { cursor.fingerprintRead() }
-        #if VORSSAINT_RUST_ENGINE
         guard size > cursor.offset else { return }
         let descriptor = open(cursor.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
         guard descriptor >= 0 else { return }
@@ -805,23 +804,6 @@ enum AgentLogReader {
             }
             guard read else { break }
         }
-        #else
-        guard size > cursor.offset, let handle = FileHandle(forReadingAtPath: cursor.path) else { return }
-        defer { try? handle.close() }
-        do { try handle.seek(toOffset: cursor.offset) } catch { return }
-        while cursor.offset < size, shouldContinue() {
-            let wanted = Int(min(UInt64(chunkSize), size - cursor.offset))
-            // A first read can cover gigabytes; each chunk and what was parsed
-            // from it are released before the next one.
-            let read: Bool = autoreleasepool {
-                guard let chunk = try? handle.read(upToCount: wanted), !chunk.isEmpty else { return false }
-                cursor.offset += UInt64(chunk.count)
-                split(chunk, cursor: cursor, including: including, line: line)
-                return true
-            }
-            guard read else { break }
-        }
-        #endif
     }
 
     /// Skip unrelated payloads before copying a line. Only top-level event
@@ -837,44 +819,6 @@ enum AgentLogReader {
     static func readCopilotHistory(_ cursor: AgentLogCursor, shouldContinue: () -> Bool = { true },
                                    line: (Data) -> Void) {
         readAppended(cursor, shouldContinue: shouldContinue, including: copilotHistoryLine, line: line)
-    }
-
-    private static func split(_ chunk: Data, cursor: AgentLogCursor,
-                              including: ((Data, Range<Int>) -> Bool)?, line: (Data) -> Void) {
-        var buffer = cursor.pending
-        buffer.append(chunk)
-        var start = 0
-        let count = buffer.count
-        var lines: [Range<Int>] = []
-        buffer.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return }
-            // What was carried over holds no line break; a long line is
-            // not searched again with every chunk it spans.
-            var position = cursor.pending.count
-            while position < count, let found = memchr(base + position, 0x0A, count - position) {
-                let end = base.distance(to: UnsafeRawPointer(found))
-                lines.append(start..<end)
-                start = end + 1
-                position = start
-            }
-        }
-        for range in lines {
-            if cursor.discarding {
-                cursor.discarding = false
-                continue
-            }
-            if !range.isEmpty, range.count <= maximumLine, including?(buffer, range) != false {
-                line(buffer.subdata(in: range))
-            }
-        }
-        // Once a line is oversized, scan only for its terminator. Retaining
-        // subsequent fragments would rebuild a buffer we can never deliver.
-        if cursor.discarding || count - start > maximumLine {
-            cursor.pending = Data()
-            cursor.discarding = true
-        } else {
-            cursor.pending = start < count ? buffer.subdata(in: start..<count) : Data()
-        }
     }
 }
 

@@ -28,12 +28,9 @@ trap 'exit 1' INT TERM HUP
 
 # Flags: --dev builds the local-only "Vorssaint (Developer)" variant (its own
 # bundle id, so it coexists with the official app); --install puts it in /Applications.
-# --rust-engine (or VORSSAINT_RUST_ENGINE=1) links the Rust engine in Engine/ and
-# routes the subsystems it has taken over through it; see Engine/README.md.
 DEV=0
 INSTALL=0
 TEST=0
-RUST_ENGINE="${VORSSAINT_RUST_ENGINE:-0}"
 TEST_ARGS=()
 for arg in "$@"; do
     case "$arg" in
@@ -42,7 +39,6 @@ for arg in "$@"; do
         --test)    TEST=1 ;;
         --test-suite=*) TEST=1; TEST_ARGS+=("--suite=${arg#*=}") ;;
         --list-tests) TEST=1; TEST_ARGS+=(--list) ;;
-        --rust-engine) RUST_ENGINE=1 ;;
     esac
 done
 
@@ -219,19 +215,16 @@ fi
 # The Rust engine is a static library: Swift imports its C header through
 # Sources/VorssaintEngine and the module map links it, so nothing ships beside
 # the executable. Release builds use LTO and abort on panic (Engine/Cargo.toml).
-ENGINE_FLAGS=()
-if (( RUST_ENGINE )); then
-    if ! command -v cargo >/dev/null 2>&1; then
-        echo "✗ --rust-engine needs a Rust toolchain (https://rustup.rs)" >&2
-        exit 1
-    fi
-    ENGINE_TARGET="aarch64-apple-darwin"
-    echo "▸ Building Rust engine ($ENGINE_TARGET)…"
-    MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --quiet --locked \
-        --manifest-path Engine/Cargo.toml --target "$ENGINE_TARGET"
-    ENGINE_FLAGS=(-D VORSSAINT_RUST_ENGINE -I Sources/VorssaintEngine
-                  -L "Engine/target/$ENGINE_TARGET/release")
+# See Engine/README.md.
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "✗ Building Vorssaint needs a Rust toolchain for Engine/ (https://rustup.rs)" >&2
+    exit 1
 fi
+ENGINE_TARGET="aarch64-apple-darwin"
+echo "▸ Building Rust engine ($ENGINE_TARGET)…"
+MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --quiet --locked \
+    --manifest-path Engine/Cargo.toml --target "$ENGINE_TARGET"
+ENGINE_FLAGS=(-I Sources/VorssaintEngine -L "Engine/target/$ENGINE_TARGET/release")
 
 # The defaults migrations under test need a real UserDefaults suite, and every
 # suite leaves an empty plist in ~/Library/Preferences. The tests already clear

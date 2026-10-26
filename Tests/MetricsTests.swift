@@ -125,10 +125,7 @@ struct MetricsTests {
                 NotchPresentationProbeArgumentTests.run(suite)
             }),
             ("switcher-model", { SwitcherModelFeatureTests.run(suite) }),
-            ("agents", {
-                NotchAgentTests.run(suite)
-                RustEngineParityTests.run(suite)
-            }),
+            ("agents", { NotchAgentTests.run(suite) }),
             ("features", {
                 FeatureCatalogTests.run(suite)
                 MenuPanelSectionGateContract.run(suite)

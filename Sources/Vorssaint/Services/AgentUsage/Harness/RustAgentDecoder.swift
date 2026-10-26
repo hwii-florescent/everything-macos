@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-#if VORSSAINT_RUST_ENGINE
 import Foundation
 import VorssaintEngine
 
@@ -182,8 +181,8 @@ final class RustAgentDecoder {
         var commands: Set<String> = []
         var at = 0
         while at + 4 <= bytes.count {
-            let count = Int(UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16
-                            | UInt32(bytes[at + 3]) << 24)
+            let length = UnsafeRawBufferPointer(bytes).loadUnaligned(fromByteOffset: at, as: UInt32.self)
+            let count = Int(UInt32(littleEndian: length))
             guard at + 4 + count <= bytes.count else { break }
             commands.insert(String(decoding: UnsafeBufferPointer(rebasing: bytes[(at + 4)..<(at + 4 + count)]),
                                    as: UTF8.self))
@@ -192,4 +191,3 @@ final class RustAgentDecoder {
         return commands
     }
 }
-#endif

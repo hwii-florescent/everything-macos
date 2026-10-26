@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-//! The cases `Tests/NotchAgentTests.swift` checks against the Swift readers,
-//! run against the Rust ones with the same log lines.
+//! The cases `Tests/NotchAgentTests.swift` checked against the Swift readers
+//! the engine replaced, run against the Rust ones with the same log lines.
 
 use vorssaint_engine::agent::{Billable, Entry, Provider, Reader, Slot, State, Tokens};
 use vorssaint_engine::timestamp;

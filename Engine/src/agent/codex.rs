@@ -3,7 +3,7 @@
 
 //! Codex session logs. Token records and running-total events become usage,
 //! task events open and close turns, and limit readings become the account's
-//! allowance windows. Mirrors `CodexReader`.
+//! allowance windows. Swift's `CodexReader` calls into it.
 
 use super::{int, project_name, seconds, swift_double, Billable, Entry, Reader, Slot, State, Tokens, Window};
 use crate::json::{self, Object};
@@ -246,4 +246,23 @@ pub fn windows(limits: &Object, observed: f64) -> Vec<Window> {
     }
     windows.sort_by_key(|w| w.minutes.unwrap_or(i64::MAX));
     windows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_mode_is_recognized_by_both_of_its_names() {
+        assert!(fast_tier("priority") && fast_tier("Fast"));
+        assert!(!fast_tier("default") && !fast_tier("flex"));
+    }
+
+    #[test]
+    fn a_lines_own_type_is_found_before_its_events() {
+        let line = br#"{"timestamp":"2026-09-22T15:00:00.000Z","ordinal":3,"type":"event_msg","payload":{"type":"token_count","info":null}}"#;
+        let (kind, end) = first_type(line, 0).unwrap();
+        assert_eq!(kind, b"event_msg");
+        assert_eq!(first_type(line, end).unwrap().0, b"token_count");
+    }
 }

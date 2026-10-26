@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-//! Splits what was appended to a log into complete lines. Mirrors
-//! `AgentLogReader.split` in Swift: the bytes after the last line break are
+//! Splits what was appended to a log into complete lines for Swift's
+//! `AgentLogReader.readAppended`: the bytes after the last line break are
 //! handed back to be carried over, and a line longer than the limit is
 //! skipped through its terminator instead of being held in memory.
 //!
-//! The Swift version copied each chunk onto the carried-over bytes and each
-//! line into its own `Data`. Here a chunk is read straight into one reused
-//! buffer, behind the carried-over bytes, and every line is lent out in place.
+//! The Swift splitter this replaced copied each chunk onto the carried-over
+//! bytes and each line into its own `Data`. Here a chunk is read straight into
+//! one reused buffer, behind the carried-over bytes, and every line is lent
+//! out in place.
 
 use std::fs::File;
 use std::io;
@@ -90,7 +91,7 @@ impl Splitter {
     }
 }
 
-/// `AgentLogReader.split` over `buffer`, whose first `carried` bytes were
+/// Splits `buffer`, whose first `carried` bytes were
 /// carried over and hold no line break. Returns where the bytes to carry over
 /// start, and whether an oversized line is still being skipped.
 pub fn split(
