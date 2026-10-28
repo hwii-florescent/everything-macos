@@ -40,11 +40,13 @@ struct NotchNotice: Equatable {
                                     trailing: max(minimumWings.trailing, fitted.trailing))
         }
         let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        let leading = ((level == nil ? title : detail) as NSString).size(withAttributes: [.font: font]).width
-        // A level's wings are as wide as its mark and its reading; the meter
-        // takes the same width on the other side.
+        func measured(_ text: String) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
+        let leading = measured(level == nil ? title : detail)
+        // A level's wings are as wide as its mark and its widest reading, so
+        // the island holds still as the value gains or loses a digit; the
+        // meter takes the same width on the other side.
         if level != nil, event != .accessory {
-            let wing = ceil(Self.levelInset + 18 + 8 + leading)
+            let wing = ceil(Self.levelInset + 18 + 8 + max(leading, measured("100%")))
             return NotchNoticeWings(leading: wing, trailing: wing)
         }
         // Long accessory names still use bounded truncation.
@@ -200,6 +202,7 @@ final class NotchService: ObservableObject {
     private var captureID: UUID?
     private var captureFallback: (() -> Void)?
     private var captureClose: (() -> Void)?
+    private var captureDismiss: (() -> Void)?
     private var captureHover: ((Bool) -> Void)?
     private var captureClosesOnCollapse = false
     private var inside = false
@@ -223,7 +226,10 @@ final class NotchService: ObservableObject {
     /// the preferences: the open page's geometry is read on every layout pass.
     private var homeControls: [NotchControlItem] = []
     private var fileInteractionActive = false
-    private var keepsWorkingSurface: Bool {
+    /// A screenshot preview stays when the pointer leaves or another app
+    /// activates. It leaves on its own timer or on a click elsewhere.
+    private var keepsWorkingSurface: Bool { keepsSurfaceOnClick || showsCapturePreview }
+    private var keepsSurfaceOnClick: Bool {
         pinned || trackingMenu || NSApp.modalWindow != nil || panel?.attachedSheet != nil
             || NotchLyricsService.shared.isImporting
             // Like the lyrics chooser, these panels stand beside the island
@@ -235,8 +241,10 @@ final class NotchService: ObservableObject {
             || (expanded && !showingSections && selected == .calendar && Permissions.shared.keepsCalendarPrompt)
             || (expanded && !showingSections && selected == .files && fileInteractionActive)
             || CameraPreviewService.shared.keepsNotchPermissionPrompt
-            || (expanded && !showingSections && selected == .captures && captureContent != nil)
             || (expanded && !showingSections && selected == .tools && (QuickLauncherService.shared.activeUtility != nil || QuickLauncherService.shared.isEditing))
+    }
+    private var showsCapturePreview: Bool {
+        expanded && !showingSections && selected == .captures && captureContent != nil
     }
     /// Up and measuring its display. Settings previews read the island's
     /// size only then.
@@ -277,6 +285,12 @@ final class NotchService: ObservableObject {
     private var screenRefreshWork: DispatchWorkItem?
     private var preferenceSyncWork: DispatchWorkItem?
     private let menuSpaceQueue = DispatchQueue(label: "com.vorssaint.notch-menu-space", qos: .utility)
+    /// Set while the live window is on its way to another display, so the copy
+    /// there stays up until that window has been drawn for it and ordered in.
+    private var mirrorHeldForArrival: CGDirectDisplayID?
+    /// Bumped on every move, so a reveal queued for the display just left does
+    /// not order the window in after a newer move, or after the island stops.
+    private var relocationTicket = 0
     /// The display the island is on. The pointer choice keeps it there until
     /// the island rests, so a preference sync never moves an open island.
     private var displayID: CGDirectDisplayID?
@@ -1260,6 +1274,7 @@ final class NotchService: ObservableObject {
     }
 
     private func tearDownPresentation() {
+        cancelRelocation()
         screenRefreshWork?.cancel(); screenRefreshWork = nil
         stopAppFullscreenMonitoring()
         nextMascotVisitWork?.cancel(); nextMascotVisitWork = nil
@@ -2481,7 +2496,8 @@ final class NotchService: ObservableObject {
 
     func presentCapture(id: UUID, content: AnyView, actions: AnyView? = nil, height: CGFloat,
                         takeFocus: Bool, closeOnCollapse: Bool, fallback: @escaping () -> Void,
-                        close: @escaping () -> Void, hover: @escaping (Bool) -> Void) -> Bool {
+                        close: @escaping () -> Void, dismiss: @escaping () -> Void,
+                        hover: @escaping (Bool) -> Void) -> Bool {
         guard acceptsSystemFeedback, NotchSupport.routes(.capture) else { return false }
         let keepOpen = expanded && pinned
         captureID = id
@@ -2490,6 +2506,7 @@ final class NotchService: ObservableObject {
         captureActions = actions
         captureFallback = fallback
         captureClose = close
+        captureDismiss = dismiss
         captureHover = hover
         captureClosesOnCollapse = closeOnCollapse
         open(.captures, pinned: keepOpen,
@@ -2527,6 +2544,7 @@ final class NotchService: ObservableObject {
         captureContentHeight = nil
         captureFallback = nil
         captureClose = nil
+        captureDismiss = nil
         captureHover = nil
         captureClosesOnCollapse = false
     }
@@ -2642,7 +2660,7 @@ final class NotchService: ObservableObject {
             // a song held as it ended never comes back over the next one.
             if heldMusic != nil { heldMusic = nil }
             if hiddenUntilHover { windowHost?.hide(animated: animated, transitionContent: transitionContent) }
-            else { panel?.orderOut(nil) }
+            else { windowHost?.hide(animated: false) }
             removeScreenEdgeClickMonitors()
             return
         }
@@ -2730,7 +2748,10 @@ final class NotchService: ObservableObject {
                     self.openCountdownEvent()
                 } else { self.toggle() }
             })
-        if panel?.isVisible != true { panel?.orderFrontRegardless() }
+        // A move between displays brings the window back on the next turn, once
+        // what it shows has been drawn for the display it landed on. Ordering
+        // it in here would flash the shape it had on the display it left.
+        if panel?.isVisible != true, mirrorHeldForArrival == nil { panel?.orderFrontRegardless() }
         let music = NotchMusicService.shared
         rememberPresentedMusic(playback: music.playback, artwork: music.artwork, tint: music.artworkTint)
         if contentTransition == .depart {
@@ -2830,12 +2851,110 @@ final class NotchService: ObservableObject {
     }
 
     private func move(to screen: NSScreen) {
-        displayID = screen.notchDisplayID
+        guard let host = windowHost else { return }
+        let destination = screen.notchDisplayID
+        // On screen now: a copy has to be underneath before this window leaves,
+        // or the display it leaves blinks empty, and the window server would
+        // stretch it across to the display the pointer entered.
+        let reveal = host.canRelocateOnScreen()
+        relocationTicket += 1
+        let ticket = relocationTicket
+        let origin = displayID
+        displayID = destination
+        mirrorHeldForArrival = reveal ? destination : nil
+        if reveal {
+            // Keep the copy on the display being entered until this window is
+            // drawn for it. The copy on the display being left goes underneath.
+            syncMirrors()
+            guard relocationTicket == ticket, windowHost === host else { return }
+            // Only the copy that was covered. The one on the display being
+            // entered is already drawing its wave; laying it out again flickers it.
+            if let origin { holdMusicWave(on: origin) }
+            _ = host.orderOutForRelocation()
+        } else {
+            releaseMusicWave()
+        }
+        guard relocationTicket == ticket, windowHost === host else { return }
         updateScreen()
+        guard relocationTicket == ticket, windowHost === host else { return }
+        // Preferences or a disconnected display may choose a different screen.
+        if reveal { mirrorHeldForArrival = displayID }
         // The menu space measured so far belongs to the display it left.
         invalidateMenuSpace()
         syncVisibleConsumers()
         refreshPresentation(animated: false)
+        guard reveal, relocationTicket == ticket, windowHost === host else { return }
+        let arrival = displayID
+        // SwiftUI draws the new display's shape at the end of this turn, while
+        // the window is still out. It comes back on the next one, over the copy.
+        let work = DispatchWorkItem { [weak self, weak host] in
+            guard let self, let host, self.relocationTicket == ticket, self.windowHost === host else { return }
+            guard self.running, !self.suspended else {
+                self.cancelRelocation()
+                host.hide(animated: false)
+                host.cancelRelocation()
+                self.syncMirrors()
+                return
+            }
+            // A screen can disappear before its debounced notification runs.
+            // Settle on the currently selected screen, or let teardown cancel us.
+            let missing = !NSScreen.screens.contains { $0.notchDisplayID == self.displayID }
+            if missing {
+                self.updateScreen()
+                guard self.relocationTicket == ticket, self.windowHost === host else { return }
+                self.invalidateMenuSpace()
+                self.syncVisibleConsumers()
+            }
+            if missing || self.displayID != arrival {
+                self.mirrorHeldForArrival = self.displayID
+                self.refreshPresentation(animated: false)
+                guard self.relocationTicket == ticket, self.windowHost === host else { return }
+            }
+            // Take the bars already on that display, then cover them. Hiding
+            // the copy while it still holds its wave keeps those bars from
+            // falling to dots on the way out.
+            self.matchMusicWave()
+            guard self.relocationTicket == ticket, self.windowHost === host else { return }
+            host.orderFrontForRelocation()
+            guard self.relocationTicket == ticket, self.windowHost === host else { return }
+            self.mirrorHeldForArrival = nil
+            self.keepMusicWave()
+            self.syncMirrors()
+            guard self.relocationTicket == ticket, self.windowHost === host else { return }
+            self.releaseMusicWave()
+            self.syncScreenEdgeClicks()
+        }
+        DispatchQueue.main.async(execute: work)
+    }
+
+    private func cancelRelocation() {
+        relocationTicket += 1
+        mirrorHeldForArrival = nil
+        releaseMusicWave()
+    }
+
+    /// The copy on `id` draws the wave before it is uncovered. A newer move
+    /// takes the hold over; this one lets it go.
+    private func holdMusicWave(on id: CGDirectDisplayID) {
+        guard let mirror = mirrors[id], mirror.model.shown else { return }
+        mirror.host.holdWave()
+    }
+
+    /// The window that is about to cover this display repeats the bars the
+    /// copy there is already showing.
+    private func matchMusicWave() {
+        guard let id = displayID, let mirror = mirrors[id], mirror.model.shown else { return }
+        windowHost?.matchWave(from: mirror.host.panel.contentView)
+    }
+
+    /// The copy about to leave this display keeps its bars through the hide.
+    private func keepMusicWave() {
+        guard let id = displayID, let mirror = mirrors[id] else { return }
+        mirror.host.keepWave()
+    }
+
+    private func releaseMusicWave() {
+        for mirror in mirrors.values { mirror.host.releaseWave() }
     }
 
     /// A new song's title shows in the capsule for a few seconds, then the
@@ -3067,11 +3186,16 @@ final class NotchService: ObservableObject {
         for screen in screens {
             let id = screen.notchDisplayID
             var base: NotchGeometry?
-            if id != displayID, !hidesAtRest, !fullscreenDisplays.contains(id) {
+            if id != displayID || id == mirrorHeldForArrival, !hidesAtRest, !fullscreenDisplays.contains(id) {
                 var geometry = baseGeometry(for: screen)
                 geometry.compactSideRoom = mirrorSideRoom(on: screen, geometry: geometry)
                 // A simulated island needs the menus' room at rest, as the island does.
-                if geometry.isNotched || geometry.compactSideRoom != nil { base = geometry }
+                if geometry.isNotched || geometry.compactSideRoom != nil {
+                    // Keep the arriving copy only while it may still show.
+                    // Fullscreen and hide-until-hover must also hide a held copy.
+                    if id == mirrorHeldForArrival { continue }
+                    base = geometry
+                }
             }
             guard let base else {
                 if let mirror = mirrors[id], mirror.model.shown {
@@ -3100,7 +3224,15 @@ final class NotchService: ObservableObject {
             mirror.host.setActivationArea(CGRect(origin: .zero, size: size),
                                           title: FeatureStrings.notch(L10n.shared.language).open,
                                           willPress: {}, activate: { [weak self] in self?.bringIsland(to: id) })
-            if !mirror.host.panel.isVisible { mirror.host.panel.orderFrontRegardless() }
+            guard !mirror.host.panel.isVisible else { continue }
+            // Under the window that is about to leave, so that display keeps
+            // an island when the window goes. In front, the copy would cover
+            // it and the two would blink as they traded.
+            if mirrorHeldForArrival != nil, let live = windowHost?.panel, live.isVisible, live.windowNumber > 0 {
+                mirror.host.panel.order(.below, relativeTo: live.windowNumber)
+            } else {
+                mirror.host.panel.orderFrontRegardless()
+            }
         }
     }
 
@@ -3710,11 +3842,7 @@ final class NotchService: ObservableObject {
         clickedSinceOpening = false
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         if let token = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
-            guard let self, !self.keepsWorkingSurface,
-                  self.windowHost?.contains(NSEvent.mouseLocation) != true,
-                  (NSApp.delegate as? AppDelegate)?.isOverStatusItem(NSEvent.mouseLocation) != true,
-                  !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) else { return }
-            self.collapse()
+            self?.clickedElsewhere()
         }) { eventMonitors.append(token) }
         if let token = NSEvent.addLocalMonitorForEvents(matching: clicks.union(.keyDown), handler: { [weak self] event in
             guard let self else { return event }
@@ -3783,12 +3911,20 @@ final class NotchService: ObservableObject {
             let click = clicks.contains(NSEvent.EventTypeMask(rawValue: 1 << event.type.rawValue))
             let islandWindow = self.ownsWindow(event.window)
             if click, islandWindow { self.clickedSinceOpening = true }
-            if click, !islandWindow, !self.keepsWorkingSurface,
-               self.windowHost?.contains(NSEvent.mouseLocation) != true,
-               (NSApp.delegate as? AppDelegate)?.isOverStatusItem(NSEvent.mouseLocation) != true,
-               !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) { self.collapse() }
+            if click, !islandWindow { self.clickedElsewhere() }
             return event
         }) { eventMonitors.append(token) }
+    }
+
+    /// A screenshot preview closes through its controller, which keeps it
+    /// while a share link is still being made.
+    private func clickedElsewhere() {
+        guard !keepsSurfaceOnClick,
+              windowHost?.contains(NSEvent.mouseLocation) != true,
+              !mirrors.values.contains(where: { $0.model.shown && $0.host.contains(NSEvent.mouseLocation) }),
+              (NSApp.delegate as? AppDelegate)?.isOverStatusItem(NSEvent.mouseLocation) != true,
+              !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) else { return }
+        if showsCapturePreview { captureDismiss?() } else { collapse() }
     }
 
     /// The panel and what hangs from it: a SwiftUI popover opened in the
