@@ -1,0 +1,5 @@
+module VirtualDisplay [system] {
+    header "include/VirtualDisplay.h"
+    link framework "CoreGraphics"
+    export *
+}

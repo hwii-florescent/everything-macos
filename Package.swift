@@ -16,6 +16,10 @@ let package = Package(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
+        .systemLibrary(
+            name: "VirtualDisplay",
+            path: "Sources/VirtualDisplay"
+        ),
         // The Rust engine's C interface. build.sh builds Engine/ and passes its
         // library folder to the linker; plain `swift build` needs it built first
         // and `-Xlinker -L -Xlinker Engine/target/aarch64-apple-darwin/release`.
@@ -25,7 +29,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Vorssaint",
-            dependencies: ["VMStatisticsCompat", "HIDEventSystem", "VorssaintEngine"],
+            dependencies: ["VMStatisticsCompat", "HIDEventSystem", "VirtualDisplay", "VorssaintEngine"],
             path: "Sources/Vorssaint"
         )
     ]

@@ -478,6 +478,7 @@ final class BrightnessService: ObservableObject {
         syncKeyTap()
         syncKeyboardBrightnessHotkeys()
         syncDisplayBrightnessHotkeys()
+        DisplayResolutionService.shared.syncWithPreferences()
     }
 
     private func syncDisplayBrightnessHotkeys() {

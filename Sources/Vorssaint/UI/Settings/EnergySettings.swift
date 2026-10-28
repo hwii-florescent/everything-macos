@@ -417,6 +417,7 @@ struct EnergySettings: View {
                 }
             }
             SoftwareDimmingButton(display: display)
+            DisplayHiDPIMenu(display: display)
             DisplayPowerButton(display: display)
         }
     }
