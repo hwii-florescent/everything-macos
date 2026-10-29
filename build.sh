@@ -67,8 +67,9 @@ ENTITLEMENTS="Resources/Vorssaint.entitlements"
 LEGACY_IDENTITY="Vorssaint Utils Signing"
 
 developer_id_identity() {
-    security find-identity -v -p codesigning 2>/dev/null \
-        | grep 'Developer ID Application' \
+    # Prefer Developer ID; fall back to an Apple Development cert (stable team-based requirement).
+    local ids; ids="$(security find-identity -v -p codesigning 2>/dev/null)"
+    { print -r -- "$ids" | grep 'Developer ID Application'; print -r -- "$ids" | grep 'Apple Development'; } \
         | head -1 \
         | sed -E 's/.*"(.*)".*/\1/' || true
 }
@@ -191,6 +192,8 @@ if (( INSTALL && ! TEST )) && [[ "${VORSSAINT_INSTALL_CHILD:-0}" != "1" ]]; then
         exit "$child_status"
     fi
     finalize_installed_bundle_after_child "/Applications/$APP_NAME.app"
+    echo "▸ Relaunching $APP_NAME…"
+    open "/Applications/$APP_NAME.app"
     exit 0
 fi
 

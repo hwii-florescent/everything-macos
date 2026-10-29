@@ -9,6 +9,55 @@ enum DisplayResolutionTests {
     typealias Size = DisplayResolutionSupport.Size
 
     static func run(_ suite: TestSuite) {
+        for language in AppLanguage.allCases {
+            let strings = FeatureStrings.displayResolution(language)
+            suite.expect(strings.status(for: true) == strings.hiDPI && !strings.hiDPI.isEmpty,
+                         "\(language): actual 2x modes are labelled HiDPI")
+            suite.expect(strings.status(for: false) == strings.hiDPIOff && !strings.hiDPIOff.isEmpty
+                         && strings.hiDPIOff != strings.hiDPI,
+                         "\(language): actual 1x modes have a distinct off label")
+            suite.expect(strings.status(for: nil) == strings.statusUnavailable
+                         && !strings.statusUnavailable.isEmpty && strings.statusUnavailable != strings.hiDPIOff,
+                         "\(language): unreadable mode is unavailable, never assumed off")
+        }
+
+        let retina = Size(width: 1512, height: 982)
+        let letterboxed = Size(width: 1512, height: 945)
+        let moreSpace = Size(width: 1800, height: 1169)
+        let retinaPixels = Size(width: 3024, height: 1964)
+        let builtIn = DisplayResolutionSupport.hiDPIPointSizes(modes: [
+            (moreSpace, Size(width: 3600, height: 2338)),
+            (retina, retinaPixels),
+            (retina, retinaPixels), // Same size at another refresh rate.
+            (letterboxed, Size(width: 3024, height: 1890)),
+            (retinaPixels, retinaPixels), // 1x is not a Retina choice.
+            (retina, Size(width: 3024, height: 982)), // Only width is 2x.
+            (retina, Size(width: 1512, height: 1964)), // Only height is 2x.
+            (Size(width: 0, height: 0), Size(width: 0, height: 0))
+        ])
+        suite.expect(builtIn == [letterboxed, retina, moreSpace],
+                     "built-in sizes are supported 2x modes, sorted and deduplicated: \(builtIn)")
+        suite.expect(builtIn.contains(retina) && builtIn.contains(letterboxed),
+                     "notch and letterbox heights remain separate choices")
+        suite.expect(!builtIn.contains(retinaPixels), "a panel's physical 1x size is not a HiDPI choice")
+        suite.expect(DisplayResolutionSupport.hiDPIPointSizes(modes: []).isEmpty,
+                     "a built-in panel without advertised HiDPI modes offers nothing")
+        suite.expect(DisplayResolutionSupport.hiDPIPointSizes(modes: [
+            (retina, Size(width: 3024, height: 982)),
+            (retinaPixels, retinaPixels)
+        ]).isEmpty, "built-in panels never invent modes from 1x or partial 2x modes")
+
+        let actual = DisplayResolutionSupport.hiDPISize(points: retina, pixels: retinaPixels)
+        suite.expect(actual == retina && actual != moreSpace,
+                     "the checkmarked size comes from the actual mode, not a requested size")
+        suite.expect(DisplayResolutionSupport.hiDPISize(points: retinaPixels, pixels: retinaPixels) == nil,
+                     "a current 1x mode never gets a HiDPI checkmark at the same logical size")
+        let unlisted = Size(width: 1600, height: 1000)
+        let unlistedActual = DisplayResolutionSupport.hiDPISize(
+            points: unlisted, pixels: Size(width: 3200, height: 2000))
+        suite.expect(unlistedActual == unlisted && !builtIn.contains(unlisted),
+                     "an off-list current size remains truthful without checking a listed choice")
+
         let base = DisplayResolutionSupport.maxBackingWidth(cpuBrand: "Apple M2")
         let pro = DisplayResolutionSupport.maxBackingWidth(cpuBrand: "Apple M3 Pro")
         suite.expect(base == 6144 && pro == 7680, "base M chips render 6K, Pro and up 8K")

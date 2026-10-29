@@ -7,8 +7,9 @@ import IOKit
 import OSLog
 import VirtualDisplay
 
-/// HiDPI ("looks like") sizes for external displays, kept per monitor and
-/// put back whenever it reconnects. macOS often hides a monitor's 2x modes
+/// HiDPI ("looks like") sizes, kept per display and put back whenever it
+/// reconnects. Built-in panels use only their own supported 2x modes.
+/// For external monitors, macOS often hides a monitor's 2x modes
 /// or offers none below 4K, which leaves text soft or tiny. Two routes, the
 /// first that works:
 ///
@@ -28,7 +29,7 @@ final class DisplayResolutionService: ObservableObject {
     /// Marks this app's virtual displays, so they are never offered or mirrored.
     static let virtualVendorID: UInt32 = 0x5653
 
-    /// Bumped whenever a size is chosen, so open menus redraw their check marks.
+    /// Invalidates the current-size label and checkmarks after choices or screen changes.
     @Published private(set) var revision = 0
 
     static let virtualDisplaysSupported = NSClassFromString("CGVirtualDisplay") != nil
@@ -63,7 +64,10 @@ final class DisplayResolutionService: ObservableObject {
             running = true
             screenObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didChangeScreenParametersNotification,
-                object: nil, queue: .main) { [weak self] _ in self?.reconcile() }
+                object: nil, queue: .main) { [weak self] _ in
+                    self?.reconcile()
+                    self?.revision += 1
+                }
             reconcile()
         } else if !wanted, running {
             running = false
@@ -75,29 +79,49 @@ final class DisplayResolutionService: ObservableObject {
 
     // MARK: - Choices for one display
 
-    /// External monitors only: Apple's built-in panels already run HiDPI.
     func offers(_ id: CGDirectDisplayID) -> Bool {
-        running && CGDisplayIsBuiltin(id) == 0 && CGDisplayVendorNumber(id) != Self.virtualVendorID
-            && !sizes(for: id).isEmpty
+        running && CGDisplayVendorNumber(id) != Self.virtualVendorID && !sizes(for: id).isEmpty
     }
 
     func sizes(for id: CGDirectDisplayID) -> [Size] {
+        if CGDisplayIsBuiltin(id) != 0 {
+            return DisplayResolutionSupport.hiDPIPointSizes(modes: Self.modes(id)
+                .filter { $0.isUsableForDesktopGUI() }
+                .map { (Size(width: $0.width, height: $0.height),
+                        Size(width: $0.pixelWidth, height: $0.pixelHeight)) })
+        }
         guard let native = nativeSize(id) else { return [] }
         return DisplayResolutionSupport.pointSizes(native: native, maxBackingWidth: maxBackingWidth)
     }
 
     func defaultSize(for id: CGDirectDisplayID) -> Size? {
-        nativeSize(id).flatMap {
+        if CGDisplayIsBuiltin(id) != 0 {
+            let sizes = sizes(for: id)
+            let mode = Self.modes(id).first { $0.ioFlags & UInt32(kDisplayModeDefaultFlag) != 0 }
+                ?? CGDisplayCopyDisplayMode(id)
+            if let mode {
+                let size = Size(width: mode.width, height: mode.height)
+                if sizes.contains(size) { return size }
+            }
+            return sizes.first
+        }
+        return nativeSize(id).flatMap {
             DisplayResolutionSupport.defaultPointSize(native: $0, maxBackingWidth: maxBackingWidth)
         }
     }
 
-    func chosenSize(for id: CGDirectDisplayID) -> Size? {
-        savedSizes[Self.fingerprint(id)].flatMap(Size.init(key:))
+    /// Read what WindowServer is displaying, never the saved/requested size.
+    func currentMode(for id: CGDirectDisplayID) -> (size: Size, hiDPI: Bool)? {
+        let source = CGDisplayMirrorsDisplay(id)
+        guard let mode = CGDisplayCopyDisplayMode(source == kCGNullDirectDisplay ? id : source) else { return nil }
+        let size = Size(width: mode.width, height: mode.height)
+        let pixels = Size(width: mode.pixelWidth, height: mode.pixelHeight)
+        return (size, DisplayResolutionSupport.hiDPISize(points: size, pixels: pixels) != nil)
     }
 
-    /// Nil turns HiDPI off for this monitor.
+    /// Nil restores the default mode (still Retina on built-in panels).
     func setSize(_ size: Size?, for id: CGDirectDisplayID) {
+        if CGDisplayIsBuiltin(id) != 0, let size, !sizes(for: id).contains(size) { return }
         let fingerprint = Self.fingerprint(id)
         var saved = savedSizes
         saved[fingerprint] = size?.key
@@ -117,7 +141,7 @@ final class DisplayResolutionService: ObservableObject {
         guard running else { return }
         let saved = savedSizes
         let physical = Self.onlineDisplays().filter {
-            CGDisplayIsBuiltin($0) == 0 && CGDisplayVendorNumber($0) != Self.virtualVendorID
+            CGDisplayVendorNumber($0) != Self.virtualVendorID
         }
         let connected = Dictionary(physical.map { (Self.fingerprint($0), $0) }, uniquingKeysWith: { a, _ in a })
         for (fingerprint, id) in connected where nativeSizes[fingerprint] == nil {
@@ -146,11 +170,14 @@ final class DisplayResolutionService: ObservableObject {
             removeVirtual(fingerprint)
         }
         if let mode = Self.hiDPIMode(id, points: size) {
-            guard Self.backingWidth(id) != size.width * 2 else { return }
+            if let current = CGDisplayCopyDisplayMode(id),
+               current.width == size.width, current.height == size.height,
+               current.pixelWidth == mode.pixelWidth, current.pixelHeight == mode.pixelHeight { return }
             if !configure(id, { CGConfigureDisplayWithDisplayMode($0, id, mode, nil) }) { failed[fingerprint] = size }
             return
         }
-        guard Self.virtualDisplaysSupported, let native = nativeSize(id),
+        // Built-in panels must never lose ProMotion/HDR to a virtual mirror.
+        guard CGDisplayIsBuiltin(id) == 0, Self.virtualDisplaysSupported, let native = nativeSize(id),
               let virtual = makeVirtual(for: id, native: native, wanted: size) else {
             failed[fingerprint] = size
             return
@@ -235,7 +262,10 @@ final class DisplayResolutionService: ObservableObject {
     }
 
     private func restoreDefaultMode(_ id: CGDirectDisplayID) {
-        guard let mode = Self.modes(id).first(where: { $0.ioFlags & UInt32(kDisplayModeDefaultFlag) != 0 }) else { return }
+        let mode = CGDisplayIsBuiltin(id) != 0
+            ? defaultSize(for: id).flatMap { Self.hiDPIMode(id, points: $0) }
+            : Self.modes(id).first { $0.ioFlags & UInt32(kDisplayModeDefaultFlag) != 0 }
+        guard let mode else { return }
         configure(id) { CGConfigureDisplayWithDisplayMode($0, id, mode, nil) }
     }
 
@@ -279,8 +309,12 @@ final class DisplayResolutionService: ObservableObject {
     }
 
     private static func hiDPIMode(_ id: CGDirectDisplayID, points: Size) -> CGDisplayMode? {
-        modes(id).filter { $0.width == points.width && $0.height == points.height && $0.pixelWidth == points.width * 2 }
-            .max { $0.refreshRate < $1.refreshRate }
+        let candidates = modes(id).filter {
+            $0.isUsableForDesktopGUI() && $0.width == points.width && $0.height == points.height
+                && $0.pixelWidth == points.width * 2 && $0.pixelHeight == points.height * 2
+        }
+        let refresh = CGDisplayCopyDisplayMode(id)?.refreshRate
+        return candidates.first { $0.refreshRate == refresh } ?? candidates.max { $0.refreshRate < $1.refreshRate }
     }
 
     /// The panel's pixels: the largest mode drawn one pixel per point.
@@ -289,7 +323,4 @@ final class DisplayResolutionService: ObservableObject {
             .map { Size(width: $0.pixelWidth, height: $0.pixelHeight) }.max()
     }
 
-    private static func backingWidth(_ id: CGDirectDisplayID) -> Int? {
-        CGDisplayCopyDisplayMode(id)?.pixelWidth
-    }
 }

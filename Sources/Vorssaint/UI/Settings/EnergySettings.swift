@@ -385,40 +385,43 @@ struct EnergySettings: View {
     }
 
     private func displayRow(_ display: BrightnessDisplay) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: display.isBuiltIn ? "laptopcomputer" : "display")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(display.isActive ? Color.accentColor : Color.secondary)
-                .frame(width: 26, height: 26)
-                .background((display.isActive ? Color.accentColor : Color.secondary).opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            Text(display.name)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 80, alignment: .leading)
-            if display.isActive, display.method != nil {
-                Slider(value: Binding(get: { display.brightness },
-                                      set: { BrightnessService.shared.setBrightness(
-                                          $0, for: display.id,
-                                          showOSD: brightnessOSDEnabled) }),
-                       in: 0...1)
-                    .disabled(brightness.isDisplayPending(display.id))
-                    .accessibilityLabel(display.name)
-                Text("\(Int((display.brightness * 100).rounded()))%")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
-            } else {
-                Spacer()
-                if !display.isActive {
-                    Text(FeatureStrings.brightness(l10n.language).displayOff)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: display.isBuiltIn ? "laptopcomputer" : "display")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(display.isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 26, height: 26)
+                    .background((display.isActive ? Color.accentColor : Color.secondary).opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text(display.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(minWidth: 80, alignment: .leading)
+                if display.isActive, display.method != nil {
+                    Slider(value: Binding(get: { display.brightness },
+                                          set: { BrightnessService.shared.setBrightness(
+                                              $0, for: display.id,
+                                              showOSD: brightnessOSDEnabled) }),
+                           in: 0...1)
+                        .disabled(brightness.isDisplayPending(display.id))
+                        .accessibilityLabel(display.name)
+                    Text("\(Int((display.brightness * 100).rounded()))%")
+                        .font(.system(.body, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(width: 52, alignment: .trailing)
+                } else {
+                    Spacer()
+                    if !display.isActive {
+                        Text(FeatureStrings.brightness(l10n.language).displayOff)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                    }
                 }
+                SoftwareDimmingButton(display: display)
+                DisplayPowerButton(display: display)
             }
-            SoftwareDimmingButton(display: display)
             DisplayHiDPIMenu(display: display)
-            DisplayPowerButton(display: display)
+                .padding(.leading, 38)
         }
     }
 

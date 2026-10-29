@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// Pure sizing rules for HiDPI on external displays. A HiDPI mode draws
+/// Pure sizing rules for HiDPI displays. A HiDPI mode draws
 /// every point with 2x2 pixels, so "looks like" sizes are in points and the
 /// backing store the GPU renders is twice as wide and high.
 enum DisplayResolutionSupport {
@@ -26,6 +26,18 @@ enum DisplayResolutionSupport {
             guard parts.count == 2, parts[0] > 0, parts[1] > 0 else { return nil }
             self.init(width: parts[0], height: parts[1])
         }
+    }
+
+    static func hiDPISize(points: Size, pixels: Size) -> Size? {
+        guard points.width > 0, points.height > 0,
+              pixels.width == points.width * 2, pixels.height == points.height * 2 else { return nil }
+        return points
+    }
+
+    /// Built-in panels use advertised modes, not generated sizes. Keep distinct
+    /// heights (including notch/letterbox variants), but not refresh duplicates.
+    static func hiDPIPointSizes(modes: [(points: Size, pixels: Size)]) -> [Size] {
+        Array(Set(modes.compactMap { hiDPISize(points: $0.points, pixels: $0.pixels) })).sorted()
     }
 
     /// Widest backing store the GPU drives: base M-series chips stop at 6K,

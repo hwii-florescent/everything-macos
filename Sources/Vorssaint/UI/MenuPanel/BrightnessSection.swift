@@ -258,9 +258,8 @@ struct SoftwareDimmingButton: View {
     }
 }
 
-/// HiDPI "looks like" size for an external display, on every surface that
-/// shows the display rows. A click turns the default size on or off; the
-/// menu lists the other sizes, from largest text to most space.
+/// One scaling selector on every display surface. Opening it never changes
+/// resolution; the label and checkmarks describe the actual mode, not a request.
 struct DisplayHiDPIMenu: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = DisplayResolutionService.shared
@@ -271,35 +270,53 @@ struct DisplayHiDPIMenu: View {
 
     var body: some View {
         if display.isActive, service.offers(display.id) {
-            let chosen = service.chosenSize(for: display.id)
-            Menu {
-                Button { service.setSize(nil, for: display.id) } label: {
-                    if chosen == nil { Label(strings.off, systemImage: "checkmark") } else { Text(strings.off) }
-                }
-                Divider()
-                ForEach(service.sizes(for: display.id), id: \.self) { size in
-                    Button { service.setSize(size, for: display.id) } label: {
-                        let title = "\(size.width) × \(size.height)"
-                        if chosen == size { Label(title, systemImage: "checkmark") } else { Text(title) }
+            let current = service.currentMode(for: display.id)
+            let status = strings.status(for: current?.hiDPI)
+            let currentText = current.map { "\($0.size.width) × \($0.size.height) · \(status)" } ?? status
+            let spokenValue = current.map { "\($0.size.width) × \($0.size.height), \(status)" } ?? status
+            let sizes = service.sizes(for: display.id)
+            let defaultSize = service.defaultSize(for: display.id)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(strings.scaling)
+                        .font(.system(size: compact ? 10.5 : 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Menu {
+                        Button(display.isBuiltIn ? strings.defaultMode : strings.off) {
+                            service.setSize(nil, for: display.id)
+                        }
+                        Divider()
+                        ForEach(sizes, id: \.self) { size in
+                            Button { service.setSize(size, for: display.id) } label: {
+                                let detail = display.isBuiltIn && size == defaultSize ? strings.defaultMode
+                                    : size == sizes.first ? strings.largerText
+                                    : size == sizes.last ? strings.moreSpace : nil
+                                let title = "\(size.width) × \(size.height)" + (detail.map { " — \($0)" } ?? "")
+                                if current?.hiDPI == true, current?.size == size {
+                                    Label(title, systemImage: "checkmark")
+                                } else {
+                                    Text(title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(currentText)
+                            .font(.system(size: compact ? 10.5 : 12, weight: .medium).monospacedDigit())
                     }
+                    .menuStyle(.borderedButton)
+                    .menuIndicator(.visible)
+                    .controlSize(compact ? .small : .regular)
+                    .fixedSize()
+                    .help("\(spokenValue)\n\(display.isBuiltIn ? strings.builtInCaption : strings.caption)")
+                    .accessibilityLabel("\(display.name): \(strings.scaling)")
+                    .accessibilityValue(spokenValue)
                 }
-            } label: {
-                HStack(spacing: compact ? 4 : 5) {
-                    Image(systemName: chosen == nil ? "textformat.size" : "checkmark.circle.fill")
-                        .font(.system(size: compact ? 9.5 : 11, weight: .semibold))
-                    Text(chosen.map { "\(strings.hiDPI) \($0.width) × \($0.height)" } ?? strings.hiDPI)
-                        .font(.system(size: compact ? 10 : 12, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(chosen == nil ? Color.secondary : Color.accentColor)
-            } primaryAction: {
-                service.setSize(chosen == nil ? service.defaultSize(for: display.id) : nil, for: display.id)
+                Text(strings.sizeHint)
+                    .font(.system(size: compact ? 9.5 : 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.visible)
-            .fixedSize()
-            .help(strings.caption)
-            .accessibilityLabel("\(display.name): \(strings.hiDPI)")
         }
     }
 }
